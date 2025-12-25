@@ -141,17 +141,20 @@ const PatientDashboardView = () => {
         patientAPI.getProfile(targetId),
         patientAPI.getPrescriptions(targetId)
       ]);
-      
+
+      const profile = profileRes?.data?.data || profileRes?.data || {};
+      const rx = prescriptionsRes?.data?.data || prescriptionsRes?.data || [];
+
       setPatient(prev => ({
         ...prev,
-        ...profileRes.data,
-        allergies: profileRes.data.allergies || [],
-        conditions: profileRes.data.conditions || [],
-        medications: profileRes.data.medications || [],
-        appointments: profileRes.data.appointments || []
+        ...profile,
+        allergies: profile.allergies || [],
+        conditions: profile.conditions || [],
+        medications: profile.medications || [],
+        appointments: profile.appointments || []
       }));
-      
-      setPrescriptions(prescriptionsRes.data || []);
+
+      setPrescriptions(Array.isArray(rx) ? rx : []);
       
     } catch (err) {
       console.error('Error fetching patient data:', err);
@@ -176,7 +179,8 @@ const PatientDashboardView = () => {
       await patientAPI.uploadPrescription(targetId, formData);
       
       const response = await patientAPI.getPrescriptions(targetId);
-      setPrescriptions(response.data);
+      const rx = response?.data?.data || response?.data || [];
+      setPrescriptions(Array.isArray(rx) ? rx : []);
       showSnackbar('Prescription uploaded successfully', 'success');
     } catch (error) {
       console.error('Error uploading prescription:', error);
@@ -341,6 +345,41 @@ const PatientDashboardView = () => {
                       </CardContent>
                     </Card>
                   </Grid>
+                  <Grid item xs={12}>
+                    <Card variant="outlined" className="card-hover">
+                      <CardHeader
+                        avatar={<Avatar sx={{ bgcolor: 'secondary.light', color: 'secondary.contrastText' }}><PrescriptionIcon /></Avatar>}
+                        title="Recent Prescriptions"
+                        subheader={prescriptions.length ? `${prescriptions.length} total` : 'No prescriptions yet'}
+                        action={
+                          <Button size="small" endIcon={<ArrowForwardIcon />} onClick={() => navigate('/patient/dashboard?tab=prescriptions')}>
+                            View
+                          </Button>
+                        }
+                      />
+                      <CardContent sx={{ pt: 0 }}>
+                        {prescriptions.length ? (
+                          <List dense disablePadding>
+                            {prescriptions
+                              .slice()
+                              .sort((a, b) => new Date(b.date) - new Date(a.date))
+                              .slice(0, 3)
+                              .map((p) => (
+                                <ListItem key={p._id} disableGutters sx={{ py: 0.5 }}>
+                                  <ListItemIcon sx={{ minWidth: 36 }}><MedicalServicesIcon fontSize="small" /></ListItemIcon>
+                                  <ListItemText
+                                    primary={p.doctorName ? `Dr. ${p.doctorName}` : 'Prescription'}
+                                    secondary={p.date ? new Date(p.date).toLocaleDateString() : ''}
+                                  />
+                                </ListItem>
+                              ))}
+                          </List>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">Upload a prescription to see it here.</Typography>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Grid>
                 </Grid>
               </Paper>
             )}
@@ -409,7 +448,7 @@ const PatientDashboardView = () => {
                         </CardContent>
                         <CardActions sx={{ justifyContent: 'flex-end' }}>
                           {prescription.files?.map((file, idx) => (
-                            <Button key={idx} size="small" onClick={() => window.open(`/api${file.filePath}`, '_blank')}>View File {idx + 1}</Button>
+                            <Button key={idx} size="small" onClick={() => window.open(`/uploads/${file.filePath}`, '_blank')}>View File {idx + 1}</Button>
                           ))}
                           <IconButton size="small" color="error"><DeleteIcon fontSize="small" /></IconButton>
                         </CardActions>

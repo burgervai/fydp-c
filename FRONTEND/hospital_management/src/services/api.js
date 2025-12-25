@@ -51,8 +51,11 @@ export const authAPI = {
     try {
       const normalizedRole = (role || '').toLowerCase();
       const isValidRole = normalizedRole === 'doctor' || normalizedRole === 'patient';
-      const payload = isValidRole ? { email, password, role: normalizedRole } : { email, password };
-      const response = await api.post('/auth/login', payload);
+      if (!isValidRole) {
+        throw new Error('Invalid role. Must be either "doctor" or "patient"');
+      }
+      const payload = { email, password };
+      const response = await api.post(`/auth/login/${normalizedRole}`, payload);
       
       // Check if the response has the expected structure
       if (response.data && response.data.token) {
@@ -122,9 +125,14 @@ export const patientAPI = {
   getProfile: (id) => api.get(`/patient-profiles/${id}`),
   updateProfile: (id, data) => api.put(`/patient-profiles/${id}`, data),
   updateMedicalInfo: (id, data) => api.put(`/patient-profiles/${id}/medical-info`, data),
-  uploadPrescription: (id, file) => {
-    const formData = new FormData();
-    formData.append('prescriptionFile', file);
+  uploadPrescription: (id, fileOrFormData) => {
+    const formData = (fileOrFormData instanceof FormData)
+      ? fileOrFormData
+      : (() => {
+          const fd = new FormData();
+          fd.append('prescriptionFile', fileOrFormData);
+          return fd;
+        })();
     return api.post(`/patient-profiles/${id}/prescriptions`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',

@@ -1,46 +1,56 @@
-const mongoose = require('mongoose');
+// User.js - User model for both patients and doctors
+const { DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
+const { centralSequelize: sequelize } = require('../config/database');
 
-const userSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Please provide a name'],
+const User = sequelize.define('User', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  username: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    unique: true
   },
   email: {
-    type: String,
-    required: [true, 'Please provide an email'],
+    type: DataTypes.STRING,
+    allowNull: false,
     unique: true,
-    lowercase: true,
-    match: [
-      /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
-      'Please provide a valid email',
-    ],
+    validate: {
+      isEmail: true
+    }
   },
   password: {
-    type: String,
-    required: [true, 'Please provide a password'],
-    minlength: 8,
-    select: false, // Do not send back password field in queries by default
+    type: DataTypes.STRING,
+    allowNull: false
   },
   role: {
-    type: String,
-    enum: ['patient', 'doctor', 'admin'],
-    default: 'patient',
+    type: DataTypes.ENUM('patient', 'doctor', 'admin'),
+    defaultValue: 'patient'
+  }
+}, {
+  hooks: {
+    beforeCreate: async (user) => {
+      if (user.password) {
+        user.password = await bcrypt.hash(user.password, 10);
+      }
+    },
+    beforeUpdate: async (user) => {
+      if (user.changed('password')) {
+        user.password = await bcrypt.hash(user.password, 10);
+      }
+    }
   },
-  passwordChangedAt: Date,
+  tableName: 'users',  // Explicit table name
+  timestamps: true,    // Adds createdAt and updatedAt timestamps
+  underscored: true    // Uses snake_case for column names
 });
 
-// Pre-save middleware to hash the password
-userSchema.pre('save', async function (next) {
-  // Only run this function if password was actually modified
-  if (!this.isModified('password')) return next();
-
-  // Hash the password with cost of 12
-  this.password = await bcrypt.hash(this.password, 12);
-
-  next();
-});
-
-const User = mongoose.model('User', userSchema);
+// Instance method to compare password
+User.prototype.comparePassword = async function(candidatePassword) {
+  return await bcrypt.compare(candidatePassword, this.password);
+};
 
 module.exports = User;

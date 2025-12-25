@@ -25,7 +25,7 @@ export const HospitalProvider = ({ children }) => {
   const fetchHospitals = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/hospitals');
+      const response = await api.get('/api/hospitals');
       setHospitals(response.data.data || []);
       
       // If there's no selected hospital but we have hospitals, select the first one

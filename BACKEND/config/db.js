@@ -1,33 +1,90 @@
-const mongoose = require("mongoose");
+const { Sequelize } = require('sequelize');
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
-// Direct MongoDB connection string
-const MONGODB_URI = "mongodb+srv://niloy:BOKACHODA@cluster0.zvtqynn.mongodb.net/hospital470?retryWrites=true&w=majority";
+// For development, use SQLite
+const env = process.env.NODE_ENV || 'development';
+let sequelize;
 
-// Recommended in newer mongoose versions for query filtering behavior
-mongoose.set('strictQuery', true);
+if (env === 'development') {
+  sequelize = new Sequelize({
+    dialect: 'sqlite',
+    storage: path.join(__dirname, '../../database.sqlite'),
+    logging: console.log,
+    define: {
+      timestamps: true,
+      underscored: true
+    }
+  });
+} else {
+  const databaseUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE;
 
-const connectDB = async () => {
-  try {
-    await mongoose.connect(MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
+  if (databaseUrl) {
+    sequelize = new Sequelize(databaseUrl, {
+      dialect: 'postgres',
+      logging: process.env.NODE_ENV === 'development' ? console.log : false,
+      dialectOptions: {
+        ssl: {
+          require: true,
+          rejectUnauthorized: false,
+        },
+      },
+      pool: {
+        max: 5,
+        min: 0,
+        acquire: 30000,
+        idle: 10000,
+      },
+      define: {
+        timestamps: true,
+        underscored: true,
+      },
     });
-    
-    const { host, port, name } = mongoose.connection;
-    console.log(`✅ MongoDB connected: ${host}:${port}/${name}`);
-  } catch (err) {
-    console.error("❌ MongoDB connection error:", err.message);
+  } else {
+    sequelize = new Sequelize(
+      process.env.DB_NAME || 'healthcare_central',
+      process.env.DB_USER || 'postgres',
+      process.env.DB_PASSWORD || 'postgres',
+      {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 5432,
+        dialect: 'postgres',
+        logging: process.env.NODE_ENV === 'development' ? console.log : false,
+        dialectOptions: {
+          ssl: {
+            require: true,
+            rejectUnauthorized: false,
+          },
+        },
+        pool: {
+          max: 5,
+          min: 0,
+          acquire: 30000,
+          idle: 10000,
+        },
+        define: {
+          timestamps: true,
+          underscored: true,
+        },
+      }
+    );
+  }
+}
+
+// Test the database connection
+const testConnection = async () => {
+  try {
+    await sequelize.authenticate();
+    console.log('✅ PostgreSQL connected successfully');
+    return true;
+  } catch (error) {
+    console.error('❌ Error connecting to PostgreSQL:', error.message);
     process.exit(1);
   }
 };
 
-// Helpful connection events
-mongoose.connection.on('disconnected', () => {
-  console.warn('MongoDB disconnected');
-});
-
-mongoose.connection.on('reconnected', () => {
-  console.log('MongoDB reconnected');
-});
-
-module.exports = connectDB;
+module.exports = {
+  sequelize,
+  Sequelize,
+  testConnection
+};

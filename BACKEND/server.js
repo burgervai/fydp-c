@@ -1,284 +1,228 @@
-const express = require("express");
-const cors = require("cors");
-const path = require("path");
-const fs = require("fs");
-const cookieParser = require('cookie-parser');
-// Removed express-mongo-sanitize due to Express 5 req.query setter limitation
-// We'll use a lightweight custom sanitizer instead
+// server.js - Main entry point
+const express = require('express');
+const cors = require('cors');
 const helmet = require('helmet');
-const xss = require('xss-clean');
-const rateLimit = require('express-rate-limit');
-const hpp = require('hpp');
-// Swagger will be required later after routes
-
-// Load environment variables
+const morgan = require('morgan');
+const path = require('path');
+const fs = require('fs');
+const db = require('./models'); // Import models with sync functionality
+const errorHandler = require('./middleware/errorHandler');
+const { authLimiter, apiLimiter } = require('./middleware/rateLimit');
+const auditRequest = require('./middleware/auditMiddleware');
+const { specs, swaggerUi, swaggerOptions } = require('./docs/api-docs');
+require('dotenv').config();
 require('dotenv').config();
 
-// Database connection
-const connectDB = require("./config/db");
-
-// Import middleware
-const errorHandler = require('./middleware/errorMiddleware');
-
-// Route imports
-const doctorRoutes = require("./routes/doctorRoutes");
-const patientRecordRoutes = require("./routes/patientRecordRoutes");
-const patientAppointmentRoutes = require("./routes/doctorAppoinmentRoutes");
-const medicineRoutes = require("./routes/medicineRoutes");
-const authRoutes = require('./routes/authRoutes');
-const feedbackRoutes = require('./routes/feedbackRoutes');
-const doctorDashboardRoutes = require('./routes/doctorDashboardRoutes');
-const patientProfileRoutes = require('./routes/patientProfileRoutes');
-const doctorOperationsRoutes = require('./routes/doctorOperationsRoutes');
-const emergencyRoutes = require('./routes/emergencyRoutes');
-const chatbotRoutes = require('./routes/chatbotRoutes');
-
-// Initialize Express app
+// Minimal polyfill for Node < 20 to satisfy undici
+if (typeof global.File === 'undefined') {
+  global.File = class {};
+}
 const app = express();
-const PORT = process.env.PORT || 5000;
 
-// Temporarily disable Swagger to check for path-to-regexp errors
-// const { specs, swaggerUi, swaggerOptions } = require('./docs/api-docs');
-
-// Connect to MongoDB (connection happens before starting the server below)
-connectDB().catch((err) => {
-  console.error('Failed to connect to DB:', err?.message || err);
-  process.exit(1);
-});
-
-// Set security HTTP headers
+// Security middleware
 app.use(helmet());
 
 // CORS configuration
 const allowedOrigins = [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'http://localhost:5175',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:5173',
-    'http://127.0.0.1:5174',
-    'http://127.0.0.1:5175'
+  'http://localhost:3000',  // Local development
+  'http://localhost:3001',  // Alternate local port
+  'http://localhost:5173',  // Vite dev server
+  'http://192.168.56.1:3000',  // Local network development
+  'https://fydp-database.vercel.app',  // Your Vercel app URL
+  'https://*.vercel.app'  // Any Vercel preview URLs
 ];
 
+// Add any custom domains from environment variable
+if (process.env.ALLOWED_ORIGINS) {
+  allowedOrigins.push(...process.env.ALLOWED_ORIGINS.split(','));
+}
+
 app.use(cors({
-    origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-        // Allow any localhost/127.0.0.1 origin (any port) during development
-        const isLocalhost = /^http:\/\/(localhost|127\.0\.0\.1)(:\\d+)?$/.test(origin);
-        if (!isLocalhost && allowedOrigins.indexOf(origin) === -1) {
-            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            console.warn(`[CORS] Blocked origin: ${origin}`);
-            return callback(new Error(msg), false);
-        }
-        return callback(null, true);
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    exposedHeaders: ['Content-Range', 'X-Total-Count']
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = `The CORS policy for this site does not allow access from the specified origin: ${origin}`;
+      console.warn(msg);
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// Trust proxy (helps express-rate-limit identify client IPs correctly)
-app.set('trust proxy', 1);
+// Body parser middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Rate limiting (relaxed in development to prevent 429s during local testing)
-const isDev = process.env.NODE_ENV !== 'production';
-const limiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  limit: isDev ? 1000 : 100, // express-rate-limit v8 uses `limit`
-  standardHeaders: 'draft-7', // return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false,
-});
-app.use(limiter);
+// Logging middleware
+app.use(morgan('dev'));
 
-// Body parser with larger limit for file uploads
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// Apply rate limiting to all API routes
+app.use('/api', apiLimiter);
 
-// Cookie parser
-app.use(cookieParser());
+// Apply stricter rate limiting to auth routes
+app.use('/api/auth', authLimiter);
 
-// Data sanitization against NoSQL query injection (custom)
-function sanitizeObject(obj) {
-  if (!obj || typeof obj !== 'object') return obj;
-  for (const key of Object.keys(obj)) {
-    // If key contains prohibited characters, delete it
-    if (key.startsWith('$') || key.includes('.')) {
-      delete obj[key];
-      continue;
-    }
-    const val = obj[key];
-    if (val && typeof val === 'object') sanitizeObject(val);
-  }
-  return obj;
-}
+// Log all requests for audit
+app.use(auditRequest);
 
-app.use((req, res, next) => {
-  if (req.body && typeof req.body === 'object') sanitizeObject(req.body);
-  if (req.params && typeof req.params === 'object') sanitizeObject(req.params);
-  // Mutate existing req.query object without reassigning
-  if (req.query && typeof req.query === 'object') sanitizeObject(req.query);
-  next();
-});
-
-// Custom XSS sanitizer (replaces xss-clean for Express 5 compatibility)
-app.use((req, res, next) => {
-  // Sanitize request body
-  if (req.body && typeof req.body === 'object') {
-    Object.keys(req.body).forEach(key => {
-      if (typeof req.body[key] === 'string') {
-        req.body[key] = req.body[key].replace(/[<>"]/g, '');
-      }
+// Simple health check route
+app.get('/api/health', async (req, res) => {
+  try {
+    // Test database connection
+    await db.sequelize.authenticate();
+    
+    res.status(200).json({ 
+      status: 'ok', 
+      message: 'Server and database are running',
+      environment: process.env.NODE_ENV || 'development',
+      timestamp: new Date().toISOString(),
+      database: 'PostgreSQL (Neon)'
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'error',
+      message: 'Database connection failed',
+      error: error.message
     });
   }
-  next();
 });
 
-// Prevent parameter pollution
-app.use(hpp());
-
-// Request logging middleware
-app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
-    next();
-});
-
-// Ensure all directories exist
-const uploadPath = path.join(__dirname, "uploads");
-const documentsPath = path.join(__dirname, "uploads", "documents");
-const imagesPath = path.join(__dirname, "images");
-
-if (!fs.existsSync(uploadPath)) {
-    fs.mkdirSync(uploadPath, { recursive: true });
-}
-if (!fs.existsSync(documentsPath)) {
-    fs.mkdirSync(documentsPath, { recursive: true });
-}
-if (!fs.existsSync(imagesPath)) {
-    fs.mkdirSync(imagesPath, { recursive: true });
-}
-
-// Static file serving with proper CORS headers
-app.use("/uploads", express.static("uploads"));
-app.use("/documents", express.static(path.join(__dirname, "uploads", "documents")));
-
-// CRITICAL: Proper images route with CORS headers
-app.use('/images', (req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
-    res.header('Cache-Control', 'public, max-age=86400');
-    next();
-}, express.static(path.join(__dirname, 'images')));
-
-// Root route - must be before other routes
-app.get("/", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Hospital Management API is running",
-    version: "1.0.0",
-    documentation: "/api-docs"
-  });
-});
+// API Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs, swaggerOptions));
 
 // API Routes
-app.use("/api/doctors", doctorRoutes);
-app.use("/api/patient-records", patientRecordRoutes);
-app.use("/api/appointments", patientAppointmentRoutes);
-app.use("/api/medicines", medicineRoutes);
-app.use("/api/auth", authRoutes);
-app.use("/api/feedback", feedbackRoutes);
-app.use("/api/doctor-dashboard", doctorDashboardRoutes);
-app.use("/api/patient-profiles", patientProfileRoutes);
-app.use("/api/doctor-operations", doctorOperationsRoutes);
-app.use('/api', emergencyRoutes);
-app.use('/api', chatbotRoutes);
+const apiRoutes = require('./routes'); // Load all routes
+app.use('/api', apiRoutes);
 
-// Hospital routes
-const hospitalRoutes = require('./routes/hospitalRoutes');
-app.use('/api/hospitals', hospitalRoutes);
+// Serve uploaded files
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Swagger documentation
-const { specs, swaggerUi, swaggerOptions } = require('./docs/api-docs');
-app.use('/api-docs', 
-  swaggerUi.serve,
-  swaggerUi.setup(specs, {
-    ...swaggerOptions,
-    customSiteTitle: 'Hospital Management API',
-    customCss: '.swagger-ui .topbar { display: none }',
-    customfavIcon: false
-  })
-);
+// Serve static assets in production
+// Serve static assets in production (only if a build exists)
+if (process.env.NODE_ENV === 'production') {
+  // Try several likely frontend build locations and only serve if one exists
+  const candidates = [
+    path.join(__dirname, '../client/build'),
+    path.join(__dirname, '../FRONTEND/hospital_management/build'),
+    path.join(__dirname, '../FRONTEND/build'),
+  ];
 
-// Error handling middleware
+  const buildPath = candidates.find((p) => {
+    try { return fs.existsSync(path.join(p, 'index.html')); } catch { return false; }
+  });
+
+  if (buildPath) {
+    app.use(express.static(buildPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(buildPath, 'index.html'));
+    });
+    console.log(`Serving frontend from: ${buildPath}`);
+  } else {
+    console.warn('No frontend build found. Skipping static file serving.');
+  }
+}
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    success: false,
+    message: 'Endpoint not found',
+    path: req.path
+  });
+});
+
+// Error handler
 app.use(errorHandler);
 
-// Handle 404 - Must be after all other routes
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Can't find ${req.originalUrl} on this server!`
-  });
-});
+const PORT = process.env.PORT || 5000;
 
-// Remove duplicate root route
-
-// Test images directory
-app.get('/test-images', (req, res) => {
-    const imagesDir = path.join(__dirname, 'images');
-    fs.readdir(imagesDir, (err, files) => {
-        if (err) {
-            return res.status(500).json({ error: 'Cannot read images directory' });
-        }
-        res.json({ 
-            message: 'Images directory contents',
-            files: files,
-            path: imagesDir
-        });
+const startServer = async () => {
+  try {
+    console.log('🚀 Starting server...');
+    
+    // Sync all databases without forcing recreation to preserve data
+    console.log('🔧 Syncing database...');
+    await db.syncDatabase({
+      force: false,  // Don't drop existing tables
+      alter: false   // Don't alter tables automatically
     });
-});
+    
+    console.log('✅ Database synchronization completed successfully');
 
-// Start server
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server is running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-  console.log(`API Documentation: http://localhost:${PORT}/api-docs`);
-  console.log(`Access from network: http://${require('os').hostname()}:${PORT}`);
-});
+    // Start the server
+    const server = app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`🌱 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`📚 API Docs: http://localhost:${PORT}/api-docs`);
+    });
 
-// Global error handlers
-process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION! Shutting down...');
-  console.error(`Error: ${err.name}, ${err.message}`);
-  console.error(err.stack);
-  
-  // Attempt a graceful shutdown
-  server.close(() => {
-    console.log('Server closed due to uncaught exception');
+    // Handle server errors
+    server.on('error', (error) => {
+      if (error.syscall !== 'listen') {
+        throw error;
+      }
+
+      // Handle specific listen errors with friendly messages
+      switch (error.code) {
+        case 'EACCES':
+          console.error(`Port ${PORT} requires elevated privileges`);
+          process.exit(1);
+        case 'EADDRINUSE':
+          console.error(`Port ${PORT} is already in use`);
+          process.exit(1);
+        default:
+          throw error;
+      }
+    });
+
+    // Handle graceful shutdown
+    const shutdown = async () => {
+      console.log('🛑 Shutting down server...');
+      
+      try {
+        // Close database connections
+        await db.closeConnections();
+        console.log('✅ Database connections closed');
+        
+        // Close the server
+        server.close(() => {
+          console.log('🛑 Server stopped');
+          process.exit(0);
+        });
+
+        // Force close after 5 seconds
+        setTimeout(() => {
+          console.error('❌ Could not close connections in time, forcing shutdown');
+          process.exit(1);
+        }, 5000);
+      } catch (error) {
+        console.error('Error during shutdown:', error);
+        process.exit(1);
+      }
+    };
+
+    // Handle process termination signals
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+// Start the server when running server.js directly (local/dev)
+if (require.main === module) {
+  startServer().catch(error => {
+    console.error('❌ Fatal error during startup:', error);
     process.exit(1);
   });
-  
-  // Force shutdown if server doesn't close in time
-  setTimeout(() => {
-    console.error('Forcing shutdown...');
-    process.exit(1);
-  }, 1000).unref();
-});
+}
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('UNHANDLED REJECTION! Shutting down...');
-  console.error('Unhandled Rejection at:', promise, 'Reason:', reason);
-  
-  // Close server and exit
-  server.close(() => {
-    console.log('Server closed due to unhandled rejection');
-    process.exit(1);
-  });
-  
-  // Force shutdown if server doesn't close in time
-  setTimeout(() => {
-    console.error('Forcing shutdown...');
-    process.exit(1);
-  }, 1000).unref();
-});
+// Export the Express app for Vercel
+module.exports = app;

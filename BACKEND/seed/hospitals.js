@@ -1,13 +1,6 @@
-const mongoose = require('mongoose');
 const colors = require('colors');
-const connectDB = require('../config/db');
-const Hospital = require('../models/HospitalModel');
-
-// Connect to DB using the existing connection from db.js
-connectDB().catch(err => {
-  console.error('Database connection error:'.red, err.message);
-  process.exit(1);
-});
+const db = require('../models');
+const { Hospital } = db;
 
 // Sample hospital data
 const hospitals = [
@@ -113,18 +106,42 @@ const hospitals = [
   }
 ];
 
-// Import sample data into MongoDB
+// Import sample data into Sequelize (PostgreSQL/MySQL)
 const importData = async () => {
   try {
+    // Ensure connection is alive
+    await db.sequelize.authenticate();
+    // Ensure tables exist
+    await db.sequelize.sync();
+
     // Clear existing data
-    await Hospital.deleteMany();
-    
+    await Hospital.destroy({ where: {}, truncate: true, cascade: true });
+
+    // Map to model fields only
+    const records = hospitals.map(h => ({
+      name: h.name,
+      slug: h.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''), // Generate slug from name
+      address: h.address,
+      phone: h.phone,
+      email: h.email,
+      website: h.website,
+      doctorsUrl: h.doctorsUrl,
+      appointmentUrl: h.appointmentUrl,
+      imageUrl: h.imageUrl,
+      rating: h.rating,
+      reviewCount: h.reviewCount,
+      location: h.location,
+      locationAddress: h.address,
+      description: h.description,
+      isActive: true,
+    }));
+
     // Insert sample hospitals
-    const createdHospitals = await Hospital.create(hospitals);
-    
+    const createdHospitals = await Hospital.bulkCreate(records, { validate: true });
+
     console.log('Sample hospital data imported successfully!'.green.inverse);
     console.log(`${createdHospitals.length} hospitals created.`.cyan);
-    
+
     process.exit();
   } catch (error) {
     console.error(`Error importing data: ${error.message}`.red.inverse);
@@ -132,11 +149,14 @@ const importData = async () => {
   }
 };
 
-// Destroy sample data from MongoDB
+// Destroy sample data
 const destroyData = async () => {
   try {
-    await Hospital.deleteMany();
-    
+    await db.sequelize.authenticate();
+    // Ensure tables exist
+    await db.sequelize.sync();
+    await Hospital.destroy({ where: {}, truncate: true, cascade: true });
+
     console.log('Hospital data destroyed successfully!'.red.inverse);
     process.exit();
   } catch (error) {

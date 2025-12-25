@@ -1,264 +1,122 @@
-const PatientRecord = require('../models/PatientModel');
-const Doctor = require('../models/doctorModel');
+// authController.js - Handles registration and login logic
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { validationResult } = require('express-validator');
+const { Pool } = require('pg');
+require('dotenv').config();
+const { logAction } = require('../utils/auditLogger');
 
-// Create auth controller object
-const authController = {};
+const pool = new Pool({
+  connectionString: process.env.NEON_DATABASE || process.env.DATABASE_URL || process.env.DATABASE_URL_HOSPITAL1,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 
-/**
- * @desc    Login a patient
- * @route   POST /api/auth/login
- * @access  Public
- */
-authController.loginUser = async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            success: false,
-            errors: errors.array()
-        });
+function generateToken(user) {
+  return jwt.sign(
+    { id: user.id, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRE || '30d' }
+  );
+}
+
+// Unified registration endpoint
+exports.register = async (req, res) => {
+  const { role, email, password, first_name, last_name, gender, dob, blood_group, address, hospital, medical_history, emergency_contact, specialization, degree, experience } = req.body;
+  const ip = req.ip || req.connection.remoteAddress;
+  try {
+    // Check if user already exists
+    const userExists = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (userExists.rows.length > 0) {
+      await logAction(email, 'register_attempt', 'failed', ip, { error: 'User already exists' });
+      return res.status(400).json({ error: 'User already exists' });
     }
-
-    const { email, password, role } = req.body;
-
-    if (!email || !password) {
-        return res.status(400).json({ 
-            success: false,
-            message: 'Email and password are required' 
-        });
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    // Insert into users table
+    const userResult = await pool.query(
+      'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id, email, role',
+      [email, hashedPassword, role]
+    );
+    const userId = userResult.rows[0].id;
+    if (role === 'patient') {
+      await pool.query(
+        'INSERT INTO patients (user_id, first_name, last_name, gender, dob, blood_group, address, hospital, medical_history, emergency_contact) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+        [userId, first_name, last_name, gender, dob, blood_group, address, hospital, medical_history, emergency_contact]
+      );
+    } else if (role === 'doctor') {
+      await pool.query(
+        'INSERT INTO doctors (user_id, first_name, last_name, specialization, degree, experience, hospital, emergency_contact) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [userId, first_name, last_name, specialization, degree, experience, hospital, emergency_contact]
+      );
     }
-
-    try {
-        let user;
-        let userRole = role;
-
-        // If role is provided, use it. Otherwise, try to find the user as a doctor first, then as a patient.
-        if (userRole === 'doctor') {
-            user = await Doctor.findOne({ email: email.toLowerCase().trim() }).select('+password');
-        } else if (userRole === 'patient') {
-            user = await PatientRecord.findOne({ email: email.toLowerCase().trim() }).select('+password');
-        } else {
-            // Attempt to auto-detect role
-            user = await Doctor.findOne({ email: email.toLowerCase().trim() }).select('+password');
-            if (user) {
-                userRole = 'doctor';
-            } else {
-                user = await PatientRecord.findOne({ email: email.toLowerCase().trim() }).select('+password');
-                if (user) {
-                    userRole = 'patient';
-                }
-            }
-        }
-
-        if (!user) {
-            return res.status(401).json({ 
-                success: false,
-                message: 'Invalid credentials. Please check your email and password.' 
-            });
-        }
-
-        // Check if password matches
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(401).json({ 
-                success: false,
-                message: 'Invalid credentials. Please check your email and password.' 
-            });
-        }
-
-        // Create JWT token
-        const token = jwt.sign(
-            { id: user._id, role: userRole },
-            process.env.JWT_SECRET || 'your-secret-key',
-            { expiresIn: '7d' }
-        );
-
-        // Remove password from response
-        const userWithoutPassword = user.toObject();
-        delete userWithoutPassword.password;
-        userWithoutPassword.role = userRole; 
-
-        res.status(200).json({
-            success: true,
-            token,
-            user: userWithoutPassword
-        });
-
-    } catch (error) {
-        console.error('Login error:'.red, error);
-        res.status(500).json({ 
-            success: false,
-            message: 'Internal server error' 
-        });
-    }
+    // Generate JWT
+    const token = generateToken(userResult.rows[0]);
+    // Log with user ID instead of email
+    await logAction(userId, 'register', 'success', ip, { role, email });
+    res.status(201).json({ token });
+  } catch (err) {
+    console.error(err);
+    // Log with user ID if available, otherwise email
+    await logAction(err.user_id || email, 'register_attempt', 'error', ip, { error: err.message });
+    res.status(500).json({ error: 'Server error' });
+  }
 };
 
-
-/**
- * @desc    Register a new patient
- * @route   POST /api/auth/register
- * @access  Public
- */
-authController.registerPatient = async (req, res) => {
-    // Check for validation errors
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            success: false,
-            errors: errors.array()
-        });
+// Login Patient (unified users table)
+exports.loginPatient = async (req, res) => {
+  const { email, password } = req.body;
+  const ip = req.ip || req.connection.remoteAddress;
+  try {
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1 AND role = $2', [email, 'patient']);
+    const user = userResult.rows[0];
+    if (!user) {
+      await logAction(email, 'login_attempt', 'failed', ip, { error: 'User not found' });
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    const { email, password, patientName, phone, dateOfBirth } = req.body;
-
-    try {
-        // Check if user already exists
-        let user = await PatientRecord.findOne({ email });
-        if (user) {
-            return res.status(400).json({
-                success: false,
-                message: 'User already exists with this email'
-            });
-        }
-
-        // Create new user
-        user = new PatientRecord({
-            email,
-            password,
-            patientName,
-            phone,
-            dateOfBirth,
-            role: 'patient',
-            needsProfileCompletion: true
-        });
-
-        await user.save();
-
-        // Create JWT token
-        const token = jwt.sign(
-            { id: user._id, role: user.role },
-            process.env.JWT_SECRET || 'your-secret-key',
-            { expiresIn: '7d' }
-        );
-
-        // Remove password from response
-        const userObj = user.toObject();
-        delete userObj.password;
-
-        res.status(201).json({
-            success: true,
-            token,
-            user: userObj
-        });
-
-    } catch (error) {
-        console.error('Registration error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error during registration'
-        });
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      await logAction(email, 'login_attempt', 'failed', ip, { error: 'Invalid password' });
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
+    const token = jwt.sign(
+      { id: user.id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+    await logAction(email, 'login', 'success', ip, { role: 'patient' });
+    res.json({ token });
+  } catch (err) {
+    console.error(err);
+    await logAction(email, 'login_attempt', 'error', ip, { error: err.message });
+    res.status(500).json({ error: 'Server error' });
+  }
 };
 
-authController.registerDoctor = async (req, res) => {
-    // Check for validation errors
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            success: false,
-            errors: errors.array()
-        });
+// Login Doctor (unified users table)
+exports.loginDoctor = async (req, res) => {
+  const { email, password } = req.body;
+  const ip = req.ip || req.connection.remoteAddress;
+  try {
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1 AND role = $2', [email, 'doctor']);
+    const user = userResult.rows[0];
+    if (!user) {
+      await logAction(email, 'login_attempt', 'failed', ip, { error: 'User not found' });
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    const { email, password, doctorName, department, specialization, phoneNumber, employeeId } = req.body;
-
-    try {
-        // Check if user already exists
-        let user = await Doctor.findOne({ email });
-        if (user) {
-            return res.status(400).json({
-                success: false,
-                message: 'Doctor already exists with this email'
-            });
-        }
-
-        // Create new user
-        user = new Doctor({
-            email,
-            password, // This will be hashed by the pre-save hook in the model
-            doctorName,
-            department,
-            specialization,
-            phoneNumber,
-            employeeId,
-            role: 'doctor'
-        });
-
-        await user.save();
-
-        // Create JWT token
-        const token = jwt.sign(
-            { id: user._id, role: user.role },
-            process.env.JWT_SECRET || 'your-secret-key',
-            { expiresIn: '7d' }
-        );
-
-        // Remove password from response
-        const userObj = user.toObject();
-        delete userObj.password;
-
-        res.status(201).json({
-            success: true,
-            token,
-            user: userObj
-        });
-
-    } catch (error) {
-        console.error('Doctor registration error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error during doctor registration'
-        });
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      await logAction(email, 'login_attempt', 'failed', ip, { error: 'Invalid password' });
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
+    const token = jwt.sign(
+      { id: user.id, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+    await logAction(email, 'login', 'success', ip, { role: 'doctor' });
+    res.json({ token });
+  } catch (err) {
+    console.error(err);
+    await logAction(email, 'login_attempt', 'error', ip, { error: err.message });
+    res.status(500).json({ error: 'Server error' });
+  }
 };
-
-/**
- * @desc    Get current user
- * @route   GET /api/auth/me
- * @access  Private
- */
-authController.getMe = async (req, res) => {
-    try {
-        // req.user is set by auth middleware
-        let user;
-        if (req.user.role === 'patient') {
-            user = await PatientRecord.findById(req.user.id).select('-password');
-        } else if (req.user.role === 'doctor') {
-            user = await Doctor.findById(req.user.id).select('-password');
-        } else {
-            return res.status(400).json({ success: false, message: 'Invalid user role in token' });
-        }
-        
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-        
-        res.status(200).json({
-            success: true,
-            user
-        });
-    } catch (err) {
-        console.error(err.message);
-        res.status(500).json({
-            success: false,
-            message: 'Server error'
-        });
-    }
-};
-
-module.exports = authController;

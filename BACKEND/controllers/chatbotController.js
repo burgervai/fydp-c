@@ -1,5 +1,3 @@
-const { validationResult } = require('express-validator');
-
 // A simple map of keywords to responses for our basic chatbot.
 const responses = {
     'hello': 'Hello! How can I help you today? I can answer questions about symptoms, appointments, billing, pharmacy, and hospital services.',
@@ -41,14 +39,6 @@ const getSimpleResponse = (message) => {
  * @access  Public
  */
 const chat = async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            success: false,
-            errors: errors.array()
-        });
-    }
-
     try {
         const { message } = req.body;
 
