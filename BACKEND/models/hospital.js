@@ -6,7 +6,7 @@ module.exports = (sequelize, DataTypes) => {
  const centralModels = {
   User: require('./User'),
   AuditLog: require('./AuditLog'),
-  Hospital: require('./hospital'), // ✅ matches filename exactly
+  hospital: require('./hospital'), // ✅ matches filename exactly
 };
 
     },
