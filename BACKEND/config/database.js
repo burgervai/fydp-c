@@ -9,8 +9,14 @@ const hospitalConnections = {};
 const centralDatabaseUrl = process.env.DATABASE_URL || process.env.NEON_DATABASE;
 
 if (!centralDatabaseUrl) {
-  throw new Error('Central database URL is not set. Please set DATABASE_URL (preferred) or NEON_DATABASE in your .env file.');
+  throw new Error("❌ Central database URL is missing. Please set DATABASE_URL or NEON_DATABASE in Render environment variables.");
 }
+
+const centralSequelize = new Sequelize(centralDatabaseUrl, {
+  dialect: "postgres",
+  logging: process.env.NODE_ENV === "development" ? console.log : false,
+});
+
 
 const centralSequelize = new Sequelize(centralDatabaseUrl, {
   dialect: 'postgres',
