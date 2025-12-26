@@ -3,11 +3,12 @@ const { v4: uuidv4 } = require('uuid');
 const slugify = require('slugify');
 
 module.exports = (sequelize, DataTypes) => {
-  const Hospital = sequelize.define('Hospital', {
-    id: {
-      type: DataTypes.UUID,
-      defaultValue: DataTypes.UUIDV4,
-      primaryKey: true,
+ const centralModels = {
+  User: require('./User'),
+  AuditLog: require('./AuditLog'),
+  Hospital: require('./hospital'), // ✅ matches filename exactly
+};
+
     },
     name: {
       type: DataTypes.STRING,
