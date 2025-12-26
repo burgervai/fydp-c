@@ -45,6 +45,10 @@
     "swagger-ui-express": "^5.0.1",
     "uuid": "^11.1.0"
   },
+  "engines": {
+  "node": "18.x"
+}
+
   "devDependencies": {
     "chai": "^5.2.1",
     "cross-env": "^7.0.3",
