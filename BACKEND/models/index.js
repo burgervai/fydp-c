@@ -1,12 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const Sequelize = require('sequelize');
-const basename = path.basename(__filename);
-const env = process.env.NODE_ENV || 'development';
-
-require('dotenv').config();
-
-const db = {};
+const { Sequelize, DataTypes } = require('sequelize');
 
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
   dialect: 'postgres',
@@ -14,31 +8,26 @@ const sequelize = new Sequelize(process.env.DATABASE_URL, {
   dialectOptions: {
     ssl: {
       require: true,
-      rejectUnauthorized: false,
-    },
-  },
+      rejectUnauthorized: false
+    }
+  }
 });
 
+const db = {};
+
 fs.readdirSync(__dirname)
-  .filter((file) => {
-    return (
-      file.indexOf('.') !== 0 &&
-      file !== basename &&
-      file.slice(-3) === '.js'
-    );
-  })
-  .forEach((file) => {
+  .filter(file => file !== 'index.js' && file.endsWith('.js'))
+  .forEach(file => {
     const modelFactory = require(path.join(__dirname, file));
 
-    // 🔥 ONLY call if it's a function (factory style)
+    // 🔥 SAFETY CHECK
     if (typeof modelFactory === 'function') {
-      const model = modelFactory(sequelize, Sequelize.DataTypes);
+      const model = modelFactory(sequelize, DataTypes);
       db[model.name] = model;
     }
   });
 
-// Run associations
-Object.keys(db).forEach((modelName) => {
+Object.keys(db).forEach(modelName => {
   if (db[modelName].associate) {
     db[modelName].associate(db);
   }
