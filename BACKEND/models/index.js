@@ -1,44 +1,50 @@
+const fs = require('fs');
+const path = require('path');
 const Sequelize = require('sequelize');
-const sequelize = require('../config/database');
+const basename = path.basename(__filename);
+const env = process.env.NODE_ENV || 'development';
 
-// =====================
-// Import Models (CASE-SAFE)
-// =====================
-
-const User = require('./User');
-const userModel = require('./userModel');
-
-const PatientModel = require('./PatientModel');
-const PatientInfo = require('./PatientInfo');
-const patientRecordModel = require('./patientRecordModel');
-
-const Doctor = require('./doctorModel');
-const Appointment = require('./appointmentModel');
-const Feedback = require('./feedbackModel');
-
-const Hospital = require('./hospital');
-const Ward = require('./Ward');
-const Room = require('./Room');
-const BedAllocation = require('./BedAllocation');
-const EmergencyCase = require('./EmergencyCase');
-
-const Medicine = require('./medicineModel');
-const MedicineShop = require('./medicineShop');
-const InventoryItem = require('./InventoryItem');
-
-// =====================
-// Initialize Models
-// =====================
+require('dotenv').config();
 
 const db = {};
 
-db.Sequelize = Sequelize;
+const sequelize = new Sequelize(process.env.DATABASE_URL, {
+  dialect: 'postgres',
+  logging: false,
+  dialectOptions: {
+    ssl: {
+      require: true,
+      rejectUnauthorized: false,
+    },
+  },
+});
+
+fs.readdirSync(__dirname)
+  .filter((file) => {
+    return (
+      file.indexOf('.') !== 0 &&
+      file !== basename &&
+      file.slice(-3) === '.js'
+    );
+  })
+  .forEach((file) => {
+    const modelFactory = require(path.join(__dirname, file));
+
+    // 🔥 ONLY call if it's a function (factory style)
+    if (typeof modelFactory === 'function') {
+      const model = modelFactory(sequelize, Sequelize.DataTypes);
+      db[model.name] = model;
+    }
+  });
+
+// Run associations
+Object.keys(db).forEach((modelName) => {
+  if (db[modelName].associate) {
+    db[modelName].associate(db);
+  }
+});
+
 db.sequelize = sequelize;
+db.Sequelize = Sequelize;
 
-// User related
-db.User = User(sequelize, Sequelize);
-db.userModel = userModel(sequelize, Sequelize);
-
-// Patient related
-db.PatientModel = PatientModel(sequelize, Sequelize);
-db.PatientInfo = Pati
+module.exports = db;
