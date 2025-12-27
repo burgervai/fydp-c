@@ -1,84 +1,44 @@
-const { Sequelize } = require('sequelize');
-const { centralSequelize, getHospitalSequelize } = require('../config/database');
+const Sequelize = require('sequelize');
+const sequelize = require('../config/database');
 
-// Central DB container
-const db = {
-  Sequelize,
-  sequelize: centralSequelize
-};
+// =====================
+// Import Models (CASE-SAFE)
+// =====================
 
-// Helper to init models
-const initModel = (sequelize, model) => {
-  if (typeof model === 'function') {
-    return model(sequelize, Sequelize);
-  }
-  return model;
-};
+const User = require('./User');
+const userModel = require('./userModel');
 
-// Central models
-const centralModels = {
-  User: require('./User'),
-  AuditLog: require('./AuditLog'),
-  Hospital: require('./Hospital')
-};
+const PatientModel = require('./PatientModel');
+const PatientInfo = require('./PatientInfo');
+const patientRecordModel = require('./patientRecordModel');
 
-// Init central models
-Object.entries(centralModels).forEach(([name, model]) => {
-  db[name] = initModel(centralSequelize, model);
-});
+const Doctor = require('./doctorModel');
+const Appointment = require('./appointmentModel');
+const Feedback = require('./feedbackModel');
 
-// Setup associations
-Object.values(db).forEach((model) => {
-  if (model?.associate) model.associate(db);
-});
+const Hospital = require('./hospital');
+const Ward = require('./Ward');
+const Room = require('./Room');
+const BedAllocation = require('./BedAllocation');
+const EmergencyCase = require('./EmergencyCase');
 
-// Hospital models setup
-const setupHospitalModels = require('./hospital');
+const Medicine = require('./medicineModel');
+const MedicineShop = require('./medicineShop');
+const InventoryItem = require('./InventoryItem');
 
-// Get hospital DB
-const getHospitalDb = async (hospitalId) => {
-  const id = Number(hospitalId);
-  const normalizedId = id >= 1 && id <= 5 ? id : 1;
+// =====================
+// Initialize Models
+// =====================
 
-  const sequelize = getHospitalSequelize(normalizedId);
+const db = {};
 
-  await sequelize.query('CREATE SCHEMA IF NOT EXISTS hospital_schema');
+db.Sequelize = Sequelize;
+db.sequelize = sequelize;
 
-  const models = setupHospitalModels(sequelize, Sequelize);
+// User related
+db.User = User(sequelize, Sequelize);
+db.userModel = userModel(sequelize, Sequelize);
 
-  Object.values(models).forEach((model) => {
-    if (model?.associate) model.associate(models);
-  });
-
-  return { sequelize, models };
-};
-
-db.getHospitalDb = getHospitalDb;
-
-// Sync databases
-db.syncDatabase = async ({ force = false, alter = false } = {}) => {
-  console.log('🔧 Syncing central database...');
-  await centralSequelize.sync({ force, alter });
-
-  let hospitals = [];
-  try {
-    hospitals = await db.Hospital.findAll();
-  } catch {
-    hospitals = [{ id: 1 }];
-  }
-
-  for (const h of hospitals) {
-    const { sequelize } = await getHospitalDb(h.id);
-    await sequelize.sync({ force, alter });
-  }
-
-  console.log('✅ Database sync complete');
-};
-
-// Close connections
-db.closeConnections = async () => {
-  await centralSequelize.close();
-  console.log('🔌 DB connection closed');
-};
-
-module.exports = db;
+// Patient related
+db.PatientModel = PatientModel(sequelize, Sequelize);
+db.PatientInfo = Pati
