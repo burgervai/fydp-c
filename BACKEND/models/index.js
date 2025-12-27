@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 const { Sequelize, DataTypes } = require('sequelize');
 
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
@@ -15,23 +13,43 @@ const sequelize = new Sequelize(process.env.DATABASE_URL, {
 
 const db = {};
 
-fs.readdirSync(__dirname)
-  .filter(file => file !== 'index.js' && file.endsWith('.js'))
-  .forEach(file => {
-    const modelFactory = require(path.join(__dirname, file));
+db.User = require('./User')(sequelize, DataTypes);
+db.Hospital = require('./Hospital')(sequelize, DataTypes);
+db.Doctor = require('./Doctor')(sequelize, DataTypes);
+db.Patient = require('./Patient')(sequelize, DataTypes);
+db.Appointment = require('./Appointment')(sequelize, DataTypes);
+db.Medicine = require('./Medicine')(sequelize, DataTypes);
+db.PatientRecord = require('./PatientRecord')(sequelize, DataTypes);
 
-    // 🔥 SAFETY CHECK
-    if (typeof modelFactory === 'function') {
-      const model = modelFactory(sequelize, DataTypes);
-      db[model.name] = model;
-    }
-  });
+/* ================== RELATIONSHIPS ================== */
 
-Object.keys(db).forEach(modelName => {
-  if (db[modelName].associate) {
-    db[modelName].associate(db);
-  }
-});
+// Hospital
+db.Hospital.hasMany(db.Doctor);
+db.Hospital.hasMany(db.Patient);
+
+// User
+db.User.hasOne(db.Doctor);
+db.User.hasOne(db.Patient);
+
+// Doctor & Patient
+db.Doctor.belongsTo(db.User);
+db.Patient.belongsTo(db.User);
+db.Doctor.belongsTo(db.Hospital);
+db.Patient.belongsTo(db.Hospital);
+
+// Appointment
+db.Doctor.hasMany(db.Appointment);
+db.Patient.hasMany(db.Appointment);
+db.Appointment.belongsTo(db.Doctor);
+db.Appointment.belongsTo(db.Patient);
+
+// Patient Records
+db.Patient.hasMany(db.PatientRecord);
+db.PatientRecord.belongsTo(db.Patient);
+
+// Medicines
+db.PatientRecord.hasMany(db.Medicine);
+db.Medicine.belongsTo(db.PatientRecord);
 
 db.sequelize = sequelize;
 db.Sequelize = Sequelize;
