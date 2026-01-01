@@ -20,8 +20,6 @@ db.Patient = require("./Patient")(sequelize, DataTypes);
 db.Appointment = require("./Appointment")(sequelize, DataTypes);
 db.PatientRecord = require("./PatientRecord")(sequelize, DataTypes);
 db.Medicine = require("./Medicine")(sequelize, DataTypes);
-db.MedicineShop = require("./MedicineShop")(sequelize, DataTypes);
-
 
 /* ================== RELATIONSHIPS ================== */
 
