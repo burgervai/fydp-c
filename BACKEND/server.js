@@ -2,15 +2,14 @@ const express = require("express");
 const cors = require("cors");
 const db = require("./models");
 
+// ✅ Import your routes folder index
+const apiRoutes = require("./routes"); // this automatically loads routes/index.js
+
 const app = express();
 
 /* =========================
-   CORS CONFIG (FIXED)
-   - Allows production vercel domain
-   - Allows all vercel preview domains (*.vercel.app)
-   - Allows localhost
+   CORS CONFIG (for Vercel + Preview URLs)
 ========================= */
-
 const allowedOrigins = [
   "https://fydp-c.vercel.app",
   "http://localhost:3000",
@@ -19,13 +18,11 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests with no origin (Postman/curl)
       if (!origin) return callback(null, true);
 
-      // Allow whitelisted origins
       if (allowedOrigins.includes(origin)) return callback(null, true);
 
-      // Allow all vercel preview deployments
+      // ✅ allow all Vercel preview deployments
       if (origin.endsWith(".vercel.app")) return callback(null, true);
 
       return callback(new Error("Not allowed by CORS: " + origin));
@@ -35,18 +32,14 @@ app.use(
   })
 );
 
-// Handle preflight requests
+// ✅ Handle preflight
 app.options("*", cors());
 
-/* =========================
-   Middleware
-========================= */
 app.use(express.json());
 
 /* =========================
    Health Check Routes
 ========================= */
-
 app.get("/", (req, res) => {
   res.json({ status: "ok", message: "Backend is running" });
 });
@@ -56,9 +49,13 @@ app.get("/healthz", (req, res) => {
 });
 
 /* =========================
+   ✅ API ROUTES MOUNTED HERE
+========================= */
+app.use("/api", apiRoutes);
+
+/* =========================
    Start Server + DB Connect
 ========================= */
-
 const PORT = process.env.PORT || 5000;
 
 async function startServer() {
