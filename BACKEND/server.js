@@ -9,11 +9,16 @@ const app = express();
 ========================= */
 app.use(
   cors({
-    origin: "*", // ✅ replace with your frontend domain later
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    origin: [
+      "https://fydp-c.vercel.app",
+      "http://localhost:3000"
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
   })
 );
+
+app.options("*", cors());
 
 app.use(express.json());
 
