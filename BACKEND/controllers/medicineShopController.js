@@ -1,8 +1,13 @@
 const db = require("../models");
 
+// GET /api/medicine-shops
+// Public: list active medicine shops
 exports.getShops = async (req, res) => {
   try {
-    const shops = await db.MedicineShop.findAll();
+    const shops = await db.MedicineShop.findAll({
+      where: { is_active: true },
+      order: [["name", "ASC"]],
+    });
 
     return res.json({
       success: true,
@@ -18,41 +23,55 @@ exports.getShops = async (req, res) => {
   }
 };
 
-// Generate a best-effort search URL for a given website and query
-const buildSearchUrl = (website, q) => {
-  try {
-    if (!website) return null;
-    const url = new URL(website.startsWith('http') ? website : `https://${website}`);
-    // Common patterns used by many e-commerce sites
-    const candidates = [
-      `${url.origin}/search?q=${encodeURIComponent(q)}`,
-      `${url.origin}/?s=${encodeURIComponent(q)}`,
-      `${url.origin}/products/search?q=${encodeURIComponent(q)}`,
-    ];
-    return candidates[0];
-  } catch {
-    return null;
-  }
-};
-
+// GET /api/medicine-shops/search?q=paracetamol
+// Public: build cross-shop search URLs (no scraping, just URL generation)
 exports.searchAcrossShops = async (req, res) => {
   try {
-    const q = (req.query.q || '').trim();
+    const q = (req.query.q || "").trim();
     if (!q) {
-      return res.status(400).json({ success: false, error: 'Missing required query parameter: q' });
+      return res.status(400).json({
+        success: false,
+        error: "Query parameter 'q' is required",
+      });
     }
-    const MedicineShop = initMedicineShop();
-    const shops = await MedicineShop.findAll({ where: { isActive: true }, order: [['name', 'ASC']] });
-    const results = shops.map((s) => ({
-      id: s.id,
-      name: s.name,
-      website: s.website,
-      searchUrl: buildSearchUrl(s.website, q),
-      logoUrl: s.logoUrl || null,
-    }));
-    return res.json({ success: true, count: results.length, data: results, query: q });
+
+    const shops = await db.MedicineShop.findAll({
+      where: { is_active: true },
+      order: [["name", "ASC"]],
+    });
+
+    // Build search URLs safely (no crawling/scraping)
+    const results = shops.map((shop) => {
+      let searchUrl = shop.website;
+
+      // If website is a domain, create a generic search format.
+      // Many shops support `?q=` but not all; this is best-effort.
+      if (shop.website.includes("?")) {
+        searchUrl = `${shop.website}&q=${encodeURIComponent(q)}`;
+      } else {
+        searchUrl = `${shop.website}?q=${encodeURIComponent(q)}`;
+      }
+
+      return {
+        id: shop.id,
+        name: shop.name,
+        website: shop.website,
+        logo_url: shop.logo_url,
+        search_url: searchUrl,
+      };
+    });
+
+    return res.json({
+      success: true,
+      query: q,
+      count: results.length,
+      data: results,
+    });
   } catch (err) {
-    console.error('Error searching across medicine shops:', err);
-    return res.status(500).json({ success: false, error: 'Failed to build search results' });
+    console.error("Error searching across shops:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to search medicine shops",
+    });
   }
 };
