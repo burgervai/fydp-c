@@ -1,23 +1,20 @@
-const db = require('../models');
-
-// Ensure model is initialized even if not registered in models/index
-const initMedicineShop = () => {
-  if (!db.MedicineShop) {
-    // lazily require factory and init
-    const factory = require('../models/medicineShop');
-    db.MedicineShop = factory(db.sequelize, db.Sequelize);
-  }
-  return db.MedicineShop;
-};
+const db = require("../models");
 
 exports.getShops = async (req, res) => {
   try {
-    const MedicineShop = initMedicineShop();
-    const shops = await MedicineShop.findAll({ where: { isActive: true }, order: [['name', 'ASC']] });
-    res.json({ success: true, count: shops.length, data: shops });
+    const shops = await db.MedicineShop.findAll();
+
+    return res.json({
+      success: true,
+      count: shops.length,
+      data: shops,
+    });
   } catch (err) {
-    console.error('Error fetching medicine shops:', err);
-    res.status(500).json({ success: false, error: 'Failed to load medicine shops' });
+    console.error("Error fetching medicine shops:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to load medicine shops",
+    });
   }
 };
 
