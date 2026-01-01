@@ -2,13 +2,13 @@ const express = require("express");
 const cors = require("cors");
 const db = require("./models");
 
-// ✅ Import your routes folder index
-const apiRoutes = require("./routes"); // this automatically loads routes/index.js
+// ✅ Load the routes/index.js router
+const apiRoutes = require("./routes");
 
 const app = express();
 
 /* =========================
-   CORS CONFIG (for Vercel + Preview URLs)
+   CORS CONFIG (Vercel + Preview URLs)
 ========================= */
 const allowedOrigins = [
   "https://fydp-c.vercel.app",
@@ -18,13 +18,16 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
+      // ✅ Allow requests with no origin (Postman/curl)
       if (!origin) return callback(null, true);
 
+      // ✅ Allow listed origins
       if (allowedOrigins.includes(origin)) return callback(null, true);
 
-      // ✅ allow all Vercel preview deployments
+      // ✅ Allow ALL Vercel preview deployments
       if (origin.endsWith(".vercel.app")) return callback(null, true);
 
+      // ❌ Block everything else
       return callback(new Error("Not allowed by CORS: " + origin));
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -32,9 +35,12 @@ app.use(
   })
 );
 
-// ✅ Handle preflight
+// ✅ Handle preflight requests
 app.options("*", cors());
 
+/* =========================
+   Middleware
+========================= */
 app.use(express.json());
 
 /* =========================
@@ -49,7 +55,7 @@ app.get("/healthz", (req, res) => {
 });
 
 /* =========================
-   ✅ API ROUTES MOUNTED HERE
+   ✅ API ROUTES
 ========================= */
 app.use("/api", apiRoutes);
 
