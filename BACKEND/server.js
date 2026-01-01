@@ -5,21 +5,43 @@ const db = require("./models");
 const app = express();
 
 /* =========================
-   Middleware
+   CORS CONFIG (FIXED)
+   - Allows production vercel domain
+   - Allows all vercel preview domains (*.vercel.app)
+   - Allows localhost
 ========================= */
+
+const allowedOrigins = [
+  "https://fydp-c.vercel.app",  // ✅ production Vercel domain
+  "http://localhost:3000",      // ✅ local development
+];
+
 app.use(
   cors({
-    origin: [
-      "https://fydp-c.vercel.app",
-      "http://localhost:3000"
-    ],
+    origin: function (origin, callback) {
+      // ✅ Allow requests with no origin (Postman/curl/server-to-server)
+      if (!origin) return callback(null, true);
+
+      // ✅ Allow if origin is in whitelist
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+
+      // ✅ Allow ALL Vercel preview deployments automatically
+      if (origin.endsWith(".vercel.app")) return callback(null, true);
+
+      // ❌ Block everything else
+      return callback(new Error("Not allowed by CORS: " + origin));
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
   })
 );
 
+// ✅ Handle preflight requests
 app.options("*", cors());
 
+/* =========================
+   Middleware
+========================= */
 app.use(express.json());
 
 /* =========================
@@ -31,7 +53,7 @@ app.get("/", (req, res) => {
   res.json({ status: "ok", message: "Backend is running ✅" });
 });
 
-// Render health check path (set this in Render dashboard)
+// Render health check
 app.get("/healthz", (req, res) => {
   res.status(200).send("OK");
 });
@@ -44,22 +66,4 @@ const PORT = process.env.PORT || 5000;
 
 async function startServer() {
   try {
-    console.log("🔌 Connecting to database...");
-    await db.sequelize.authenticate();
-    console.log("✅ Database connected");
-
-    // ✅ Sync DB tables (TEMPORARY for deployment; later use migrations)
-    console.log("🛠️ Syncing database...");
-    await db.sequelize.sync({ alter: true });
-    console.log("✅ Database synced");
-
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-    });
-  } catch (err) {
-    console.error("❌ DB Error:", err);
-    process.exit(1); // ✅ Render restarts service automatically
-  }
-}
-
-startServer();
+    console.log("🔌 Connect
