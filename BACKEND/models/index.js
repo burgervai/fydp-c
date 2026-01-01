@@ -14,11 +14,13 @@ const sequelize = new Sequelize(process.env.DATABASE_URL, {
 const db = {};
 
 db.User = require('./User')(sequelize, DataTypes);
-db.Hospital = require('./hospital')(sequelize, DataTypes);
-db.Doctor = require('./doctorModel')(sequelize, DataTypes);
+db.Hospital = require('./Hospital')(sequelize, DataTypes);
+db.Doctor = require('./DoctorModel')(sequelize, DataTypes);
 db.Patient = require('./PatientModel')(sequelize, DataTypes);
-db.Medicine = require('./medicineModel')(sequelize, DataTypes);
-db.PatientRecord = require('./patientRecordModel')(sequelize, DataTypes);
+db.Appointment = require('./AppointmentModel')(sequelize, DataTypes);
+db.Medicine = require('./MedicineModel')(sequelize, DataTypes);
+db.PatientRecord = require('./PatientRecordModel')(sequelize, DataTypes);
+
 
 
 /* ================== RELATIONSHIPS ================== */
