@@ -12,23 +12,22 @@ const app = express();
 ========================= */
 
 const allowedOrigins = [
-  "https://fydp-c.vercel.app",  // ✅ production Vercel domain
-  "http://localhost:3000",      // ✅ local development
+  "https://fydp-c.vercel.app",
+  "http://localhost:3000",
 ];
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      // ✅ Allow requests with no origin (Postman/curl/server-to-server)
+      // Allow requests with no origin (Postman/curl)
       if (!origin) return callback(null, true);
 
-      // ✅ Allow if origin is in whitelist
+      // Allow whitelisted origins
       if (allowedOrigins.includes(origin)) return callback(null, true);
 
-      // ✅ Allow ALL Vercel preview deployments automatically
+      // Allow all vercel preview deployments
       if (origin.endsWith(".vercel.app")) return callback(null, true);
 
-      // ❌ Block everything else
       return callback(new Error("Not allowed by CORS: " + origin));
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -36,7 +35,7 @@ app.use(
   })
 );
 
-// ✅ Handle preflight requests
+// Handle preflight requests
 app.options("*", cors());
 
 /* =========================
@@ -48,12 +47,10 @@ app.use(express.json());
    Health Check Routes
 ========================= */
 
-// Main route
 app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "Backend is running ✅" });
+  res.json({ status: "ok", message: "Backend is running" });
 });
 
-// Render health check
 app.get("/healthz", (req, res) => {
   res.status(200).send("OK");
 });
@@ -66,4 +63,21 @@ const PORT = process.env.PORT || 5000;
 
 async function startServer() {
   try {
-    console.log("🔌 Connect
+    console.log("Connecting to database...");
+    await db.sequelize.authenticate();
+    console.log("Database connected");
+
+    console.log("Syncing database...");
+    await db.sequelize.sync({ alter: true });
+    console.log("Database synced");
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log("Server running on port " + PORT);
+    });
+  } catch (err) {
+    console.error("DB Error:", err);
+    process.exit(1);
+  }
+}
+
+startServer();
