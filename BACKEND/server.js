@@ -4,18 +4,36 @@ const db = require("./models");
 
 const app = express();
 
-// Middleware
-app.use(cors({
-  origin: "*", // later replace with your frontend URL
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true
-}));
+/* =========================
+   Middleware
+========================= */
+app.use(
+  cors({
+    origin: "*", // ✅ replace with your frontend domain later
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 
-// Health check (Render uses this sometimes)
+/* =========================
+   Health Check Routes
+========================= */
+
+// Main route
 app.get("/", (req, res) => {
   res.json({ status: "ok", message: "Backend is running ✅" });
 });
+
+// Render health check path (set this in Render dashboard)
+app.get("/healthz", (req, res) => {
+  res.status(200).send("OK");
+});
+
+/* =========================
+   Start Server + DB Connect
+========================= */
 
 const PORT = process.env.PORT || 5000;
 
@@ -25,8 +43,7 @@ async function startServer() {
     await db.sequelize.authenticate();
     console.log("✅ Database connected");
 
-    // IMPORTANT:
-    // Use alter:true temporarily during development/deploy
+    // ✅ Sync DB tables (TEMPORARY for deployment; later use migrations)
     console.log("🛠️ Syncing database...");
     await db.sequelize.sync({ alter: true });
     console.log("✅ Database synced");
@@ -36,7 +53,7 @@ async function startServer() {
     });
   } catch (err) {
     console.error("❌ DB Error:", err);
-    process.exit(1); // ensures Render restarts service
+    process.exit(1); // ✅ Render restarts service automatically
   }
 }
 
